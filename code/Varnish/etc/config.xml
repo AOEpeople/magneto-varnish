@@ -17,11 +17,11 @@
         </routers>
     </frontend>
     <global>
-		<blocks>
-			<varnish>
-				<class>Magneto_Varnish_Block</class>
-			</varnish>
-		</blocks>
+        <blocks>
+            <varnish>
+                <class>Magneto_Varnish_Block</class>
+            </varnish>
+        </blocks>
         <models>
             <varnish>
                 <class>Magneto_Varnish_Model</class>
@@ -38,7 +38,7 @@
                 <varnish translate="label,description" module="varnish">
                     <label>Varnish</label>
                     <description>Full page cache in Varnish</description>
-                    <tags></tags>
+                    <tags/>
                 </varnish>
             </types>
         </cache>
@@ -91,19 +91,19 @@
         <varnish>
             <options>
                 <servers>127.0.0.1:80</servers>
+                <parallel_request_number>20</parallel_request_number>
             </options>
         </varnish>
     </default>
 
     <adminhtml>
-
-		<layout>
-			<updates>
-				<magnetovarnish>
-					<file>magnetovarnish/magnetovarnish.xml</file>
-				</magnetovarnish>
-			</updates>
-		</layout>
+        <layout>
+            <updates>
+                <magnetovarnish>
+                    <file>magnetovarnish/magnetovarnish.xml</file>
+                </magnetovarnish>
+            </updates>
+        </layout>
 
         <acl>
             <resources>
