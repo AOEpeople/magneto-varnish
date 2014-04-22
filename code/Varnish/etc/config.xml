@@ -17,11 +17,11 @@
         </routers>
     </frontend>
     <global>
-		<blocks>
-			<varnish>
-				<class>Magneto_Varnish_Block</class>
-			</varnish>
-		</blocks>
+        <blocks>
+            <varnish>
+                <class>Magneto_Varnish_Block</class>
+            </varnish>
+        </blocks>
         <models>
             <varnish>
                 <class>Magneto_Varnish_Model</class>
@@ -61,7 +61,7 @@
                     </varnish>
                 </observers>
             </application_clean_cache>
-            <!-- To check if category is in navigation to let admin users know that varnish cache needs 
+            <!-- To check if category is in navigation to let admin users know that varnish cache needs
             to be revalidated -->
             <catalog_category_save_commit_after>
                 <observers>
@@ -96,14 +96,13 @@
     </default>
 
     <adminhtml>
-
-		<layout>
-			<updates>
-				<magnetovarnish>
-					<file>magnetovarnish/magnetovarnish.xml</file>
-				</magnetovarnish>
-			</updates>
-		</layout>
+        <layout>
+            <updates>
+                <magnetovarnish>
+                    <file>magnetovarnish/magnetovarnish.xml</file>
+                </magnetovarnish>
+            </updates>
+        </layout>
 
         <acl>
             <resources>

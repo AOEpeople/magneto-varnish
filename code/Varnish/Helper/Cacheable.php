@@ -2,10 +2,9 @@
 
 class Magneto_Varnish_Helper_Cacheable extends Mage_Core_Helper_Abstract
 {
-
     /**
      * Retrieves current cookie.
-     * 
+     *
      * @return Mage_Core_Model_Cookie
      */
     public function getCookie()
@@ -15,22 +14,22 @@ class Magneto_Varnish_Helper_Cacheable extends Mage_Core_Helper_Abstract
 
     public function isNoCacheStable()
     {
-        $this->getCookie()->get('nocache_stable') === 1;
+        return $this->getCookie()->get('nocache_stable') === 1;
     }
 
-    public function setNoCacheStable($value=1){
+    public function setNoCacheStable($value = 1)
+    {
         $this->getCookie()->set('nocache_stable', $value);
     }
 
     public function turnOffVarnishCache()
-    {   
+    {
         $this->getCookie()->set('nocache', 1);
     }
 
     public function turnOnVarnishCache()
     {
-        if ($this->getCookie()->get('nocache'))
-        {
+        if ($this->getCookie()->get('nocache')) {
             $this->getCookie()->delete('nocache');
         }
     }
@@ -61,6 +60,8 @@ class Magneto_Varnish_Helper_Cacheable extends Mage_Core_Helper_Abstract
         if ($justVotedPollId) {
             return true;
         }
+
+        return false;
     }
 }
 

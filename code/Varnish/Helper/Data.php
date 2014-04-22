@@ -2,26 +2,31 @@
 
 class Magneto_Varnish_Helper_Data extends Mage_Core_Helper_Abstract
 {
+    /**
+     * This needs to match the code in logging.xml
+     */
+    const EVENT_CODE = 'varnish_purge';
 
     /**
      * Check if varnish is enabled in Cache management.
-     * 
-     * @return boolean  True if varnish is enable din Cache management. 
+     *
+     * @return boolean  True if varnish is enable din Cache management.
      */
-    public function useVarnishCache(){
+    public function useVarnishCache()
+    {
         return Mage::app()->useCache('varnish');
     }
 
     /**
      * Return varnish servers from configuration
-     * 
-     * @return array 
+     *
+     * @return array
      */
     public function getVarnishServers()
     {
         $serverConfig = Mage::getStoreConfig('varnish/options/servers');
         $varnishServers = array();
-        
+
         foreach (explode(',', $serverConfig) as $value ) {
             $varnishServers[] = trim($value);
         }
@@ -31,7 +36,7 @@ class Magneto_Varnish_Helper_Data extends Mage_Core_Helper_Abstract
 
     /**
      * Purges all cache on all Varnish servers.
-     * 
+     *
      * @return array errors if any
      */
     public function purgeAll()
@@ -41,9 +46,9 @@ class Magneto_Varnish_Helper_Data extends Mage_Core_Helper_Abstract
 
     /**
      * Purge an array of urls on all varnish servers.
-     * 
+     *
      * @param array $urls
-     * @return array with all errors 
+     * @return array with all errors
      */
     public function purge(array $urls)
     {
@@ -53,7 +58,7 @@ class Magneto_Varnish_Helper_Data extends Mage_Core_Helper_Abstract
         // Init curl handler
         $curlHandlers = array(); // keep references for clean up
         $mh = curl_multi_init();
-        
+
         foreach ((array)$varnishServers as $varnishServer) {
             foreach ($urls as $url) {
                 $varnishUrl = "http://" . $varnishServer . $url;
@@ -71,70 +76,68 @@ class Magneto_Varnish_Helper_Data extends Mage_Core_Helper_Abstract
         }
 
         do {
-            $n = curl_multi_exec($mh, $active);
+            curl_multi_exec($mh, $active);
         } while ($active);
-        
+
         // Error handling and clean up
         foreach ($curlHandlers as $ch) {
             $info = curl_getinfo($ch);
-            
+
             if (curl_errno($ch)) {
                 $errors[] = "Cannot purge url {$info['url']} due to error" . curl_error($ch);
             } else if ($info['http_code'] != 200 && $info['http_code'] != 404) {
                 $errors[] = "Cannot purge url {$info['url']}, http code: {$info['http_code']}. curl error: " . curl_error($ch);
             }
-            
+
             curl_multi_remove_handle($mh, $ch);
             curl_close($ch);
         }
         curl_multi_close($mh);
 
-		$this->logAdminAction(
-		    empty($errors),
-			implode(', ', $urls),
-			null,
-			$errors
-	    );
-        
+        $this->logAdminAction(
+            empty($errors),
+            implode(', ', $urls),
+            null,
+            $errors
+        );
+
         return $errors;
     }
 
-	/**
-	 * Log admin action
-	 *
-	 * @param bool $success
-	 * @param null $generalInfo
-	 * @param null $additionalInfo
-	 * @return mixed
-	 */
-	protected function logAdminAction($success=true, $generalInfo=null, $additionalInfo=null, $errors=array()) {
-		$eventCode = 'varnish_purge'; // this needs to match the code in logging.xml
+    /**
+     * Log admin action
+     *
+     * @param bool $success
+     * @param string $generalInfo
+     * @param string $additionalInfo
+     * @param array $errors
+     */
+    protected function logAdminAction($success = true, $generalInfo = null, $additionalInfo = null, $errors = array())
+    {
+        if (!Mage::getSingleton('enterprise_logging/config')->isActive(self::EVENT_CODE, true)) {
+            return;
+        }
 
-		if (!Mage::getSingleton('enterprise_logging/config')->isActive($eventCode, true)) {
-			return;
-		}
+        $username = null;
+        $userId   = null;
+        if (Mage::getSingleton('admin/session')->isLoggedIn()) {
+            $userId = Mage::getSingleton('admin/session')->getUser()->getId();
+            $username = Mage::getSingleton('admin/session')->getUser()->getUsername();
+        }
 
-		$username = null;
-		$userId   = null;
-		if (Mage::getSingleton('admin/session')->isLoggedIn()) {
-			$userId = Mage::getSingleton('admin/session')->getUser()->getId();
-			$username = Mage::getSingleton('admin/session')->getUser()->getUsername();
-		}
-
-		$request = Mage::app()->getRequest();
-		return Mage::getSingleton('enterprise_logging/event')->setData(array(
-			'ip'         => Mage::helper('core/http')->getRemoteAddr(),
-			'x_forwarded_ip'=> Mage::app()->getRequest()->getServer('HTTP_X_FORWARDED_FOR'),
-			'user'       => $username,
-			'user_id'    => $userId,
-			'is_success' => $success,
-			'fullaction' => "{$request->getRouteName()}_{$request->getControllerName()}_{$request->getActionName()}",
-			'event_code' => $eventCode,
-			'action'     => 'purge',
-			'info'       => $generalInfo,
-			'additional_info' => $additionalInfo,
-			'error_message' => implode("\n", $errors),
-		))->save();
-	}
-
+        $request = Mage::app()->getRequest();
+        return Mage::getSingleton('enterprise_logging/event')->setData(array(
+            'ip'              => Mage::helper('core/http')->getRemoteAddr(),
+            'x_forwarded_ip'  => Mage::app()->getRequest()->getServer('HTTP_X_FORWARDED_FOR'),
+            'user'            => $username,
+            'user_id'         => $userId,
+            'is_success'      => $success,
+            'fullaction'      => "{$request->getRouteName()}_{$request->getControllerName()}_{$request->getActionName()}",
+            'event_code'      => self::EVENT_CODE,
+            'action'          => 'purge',
+            'info'            => $generalInfo,
+            'additional_info' => $additionalInfo,
+            'error_message'   => implode("\n", $errors),
+        ))->save();
+    }
 }

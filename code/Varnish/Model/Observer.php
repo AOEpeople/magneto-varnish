@@ -1,26 +1,53 @@
-<?php 
+<?php
 
-class Magneto_Varnish_Model_Observer {
+class Magneto_Varnish_Model_Observer
+{
+    /**
+     * Adapter instance
+     *
+     * @var Varien_Db_Adapter_Interface
+     */
+    protected $_connection;
+
+    /**
+     * Resource instance
+     *
+     * @var Mage_Core_Model_Resource
+     */
+    protected $_resource;
+
+    /**
+     * Default store id
+     *
+     * @var int
+     */
+    protected $_defaultStoreId;
+
+    public function __construct()
+    {
+        $this->_resource       = Mage::getSingleton('core/resource');
+        $this->_connection     = $this->_resource->getConnection(Mage_Core_Model_Resource::DEFAULT_READ_RESOURCE);
+        $this->_defaultStoreId = Mage::app()->getDefaultStoreView()->getId();
+    }
 
     /**
      * This method is called when http_response_send_before event is triggered to identify
      * if current page can be cached and set correct cookies for varnish.
-     * 
-     * @param Varien_Event_Observer $observer
-	 * @return bool|void
+     *
+     * @return bool
      */
-    public function varnish(Varien_Event_Observer $observer)
+    public function varnish()
     {
-        $event = $observer->getEvent();
-        $helper = Mage::helper('varnish/cacheable'); /* @var $helper Magneto_Varnish_Helper_Cacheable */
+        /* @var $helper Magneto_Varnish_Helper_Cacheable */
+        $helper = Mage::helper('varnish/cacheable');
 
         // Cache disabled in Admin / System / Cache Management
-        if( !Mage::app()->useCache('varnish') ){
+        if (!Mage::app()->useCache('varnish')) {
             $helper->turnOffVarnishCache();
             return false;
         }
 
-        if( $helper->isNoCacheStable() ){
+        if ($helper->isNoCacheStable()) {
             return false;
         }
 
@@ -29,41 +56,41 @@ class Magneto_Varnish_Model_Observer {
             return false;
         }
 
-        
+
         if ($helper->quoteHasItems() || $helper->isCustomerLoggedIn() || $helper->hasCompareItems()) {
             $helper->turnOffVarnishCache();
 
             return false;
-        } else {
-            $helper->turnOnVarnishCache();
         }
 
         $helper->turnOnVarnishCache();
+
+        return true;
     }
-    
+
     /**
      * @see Mage_Core_Model_Cache
-     * 
+     *
      * @param Mage_Core_Model_Observer $observer
-	 * @return Magneto_Varnish_Model_Observer
+     * @return Magneto_Varnish_Model_Observer
      */
     public function onCategorySave($observer)
     {
-        $category = $observer->getCategory(); /* @var $category Mage_Catalog_Model_Category */
+        $category = $observer->getCategory();
+        /* @var $category Mage_Catalog_Model_Category */
         if ($category->getData('include_in_menu')) {
             // notify user that varnish needs to be refreshed
             Mage::app()->getCacheInstance()->invalidateType(array('varnish'));
         }
-        
+
         return $this;
     }
 
     /**
-     * Listens to application_clean_cache event and gets notified when a product/category/cms 
+     * Listens to application_clean_cache event and gets notified when a product/category/cms
      * model is saved.
      *
      * @param $observer Mage_Core_Model_Observer
-	 * @return Magneto_Varnish_Model_Observer
      */
     public function purgeCache($observer)
     {
@@ -71,7 +98,7 @@ class Magneto_Varnish_Model_Observer {
         if (!Mage::app()->useCache('varnish')) {
             return;
         }
-        
+
         $tags = $observer->getTags();
         $urls = array();
 
@@ -85,135 +112,144 @@ class Magneto_Varnish_Model_Observer {
             return;
         }
 
-        // compute the urls for affected entities 
-        foreach ((array)$tags as $tag) {
+        // compute the urls for affected entities
+        foreach ((array) $tags as $tag) {
             //catalog_product_100 or catalog_category_186
-            $tag_fields = explode('_', $tag);
-            if (count($tag_fields)==3) {
-                if ($tag_fields[1]=='product') {
-                    // Mage::log("Purge urls for product " . $tag_fields[2]);
-
+            $tagFields = explode('_', $tag);
+            if (count($tagFields) == 3) {
+                if ($tagFields[1] == 'product') {
                     // get urls for product
-                    $product = Mage::getModel('catalog/product')->load($tag_fields[2]);
-                    $urls = array_merge($urls, $this->_getUrlsForProduct($product));
-                } elseif ($tag_fields[1]=='category') {
-                    // Mage::log('Purge urls for category ' . $tag_fields[2]);
-
-                    $category = Mage::getModel('catalog/category')->load($tag_fields[2]);
+                    /** @var Mage_Catalog_Model_Product $product */
+                    $product = Mage::getModel('catalog/product')->load($tagFields[2]);
+                    $urls    = array_merge($urls, $this->_getUrlsForProduct($product));
+                } elseif ($tagFields[1] == 'category') {
+                    /** @var Mage_Catalog_Model_Category $category */
+                    $category      = Mage::getModel('catalog/category')->load($tagFields[2]);
                     $category_urls = $this->_getUrlsForCategory($category);
-                    $urls = array_merge($urls, $category_urls);
-                } elseif ($tag_fields[1]=='page') {
-                    $urls = $this->_getUrlsForCmsPage($tag_fields[2]);
+                    $urls          = array_merge($urls, $category_urls);
+                } elseif ($tagFields[1] == 'page') {
+                    $urls = $this->_getUrlsForCmsPage($tagFields[2]);
                 }
             }
         }
 
         // Transform urls to relative urls
         $relativeUrls = array();
-        foreach ($urls as $url) {
+        foreach (array_unique($urls) as $url) {
             $relativeUrls[] = parse_url($url, PHP_URL_PATH);
         }
-        // Mage::log("Relative urls: " . var_export($relativeUrls, True));
-        
+
         if (!empty($relativeUrls)) {
             $errors = Mage::helper('varnish')->purge($relativeUrls);
             if (!empty($errors)) {
                 Mage::getSingleton('adminhtml/session')->addError(
-                    "Some Varnish purges failed: <br/>" . implode("<br/>", $errors));
+                    "Some Varnish purges failed: <br/>" . implode("<br/>", $errors)
+                );
             } else {
-				$count = count($relativeUrls);
-				if ($count > 5) {
-					$relativeUrls = array_slice($relativeUrls, 0, 5);
-					$relativeUrls[] = '...';
-					$relativeUrls[] = "(Total number of purged urls: $count)";
-				}
-                Mage::getSingleton('adminhtml/session')->addSuccess("Purges have been submitted successfully:<br/>" . implode("<br />", $relativeUrls));            }
+                $count = count($relativeUrls);
+                if ($count > 5) {
+                    $relativeUrls   = array_slice($relativeUrls, 0, 5);
+                    $relativeUrls[] = '...';
+                    $relativeUrls[] = "(Total number of purged urls: $count)";
+                }
+                Mage::getSingleton('adminhtml/session')->addSuccess(
+                    "Purges have been submitted successfully:<br/>" . implode("<br />", $relativeUrls)
+                );
+            }
         }
-
-        return $this;
     }
 
     /**
      * Returns all the urls related to product
-	 *
+     *
      * @param Mage_Catalog_Model_Product $product
-	 * @return array
+     * @return array
      */
-    protected function _getUrlsForProduct($product){
-        $urls = array();
+    protected function _getUrlsForProduct(Mage_Catalog_Model_Product $product)
+    {
+        $urls   = array();
+        $urls[] = Mage::getUrl('catalog/product/view',
+            array(
+                'id'     => $product->getId(),
+                's'      => $product->getUrlKey(),
+                '_store' => $product->getStoreId() ? : $this->_defaultStoreId
+            )
+        );
 
-        $store_id = $product->getStoreId();
+        // collect all rewrites
+        $coreUrlRewrites = $this->_getProductCoreUrlRewrites($product);
 
-        $routePath = 'catalog/product/view';
-        $routeParams['id']  = $product->getId();
-        $routeParams['s']   = $product->getUrlKey();
-        $routeParams['_store'] = $store_id;
-        $url = Mage::getUrl($routePath, $routeParams);
-        $urls[] = $url;
-
-        // Collect all rewrites
-        $rewrites = Mage::getModel('core/url_rewrite')->getCollection();
-        if (!Mage::getConfig('catalog/seo/product_use_categories')) {
-            $rewrites->getSelect()
-            ->where("id_path = 'product/{$product->getId()}'");
-        } else {
-            // Also show full links with categories
-            $rewrites->getSelect()
-            ->where("id_path = 'product/{$product->getId()}' OR id_path like 'product/{$product->getId()}/%'");
+        /** @var Magneto_Varnish_Helper_Data $helper */
+        $helper                 = Mage::helper('varnish');
+        $enterpriseUrlRewrites  = array();
+        $enterpriseUrlRedirects = array();
+        if ($helper->isModuleEnabled('Enterprise_Catalog')) {
+            $enterpriseUrlRewrites  = $this->_getProductEnterpriseUrlRewrites($product);
+            $enterpriseUrlRedirects = $this->_getProductEnterpriseUrlRedirects($product);
         }
-        foreach($rewrites as $r) {
-            unset($routeParams);
-            $routePath = '';
-            $routeParams['_direct'] = $r->getRequestPath();
-            $routeParams['_store'] = $r->getStoreId();
-            $url = Mage::getUrl($routePath, $routeParams);
-            $urls[] = $url;
-            $routeParams['_direct'] = $r->getTargetPath();
-            $routeParams['_store'] = $r->getStoreId();
-            $url = Mage::getUrl($routePath, $routeParams);
-            if (!in_array($url, $urls)) {
-                $urls[] = $url;
-            }
+
+        $rewrites = array_merge($coreUrlRewrites, $enterpriseUrlRewrites, $enterpriseUrlRedirects);
+        foreach ($rewrites as $r) {
+            $urls[] = Mage::getUrl('',
+                array(
+                    '_direct' => $r['request_path'],
+                    '_store'  => $r['store_id'] ? : $this->_defaultStoreId
+                )
+            );
+            $urls[] = Mage::getUrl('',
+                array(
+                    '_direct' => $r['target_path'],
+                    '_store'  => $r['store_id'] ? : $this->_defaultStoreId
+                )
+            );
         }
 
         return $urls;
     }
 
-    /** 
+    /**
      * Returns all the urls pointing to the category
-	 *
-	 * @param $category
-	 * @return array
+     *
+     * @param Mage_Catalog_Model_Category $category
+     * @return array
      */
-    protected function _getUrlsForCategory($category) {
-        $urls = array();
-        $routePath = 'catalog/category/view';
+    protected function _getUrlsForCategory(Mage_Catalog_Model_Category $category)
+    {
+        $urls   = array();
+        $urls[] = Mage::getUrl('catalog/category/view',
+            array(
+                'id'     => $category->getId(),
+                's'      => $category->getUrlKey(),
+                '_store' => $category->getStoreId() ? : $this->_defaultStoreId
+            )
+        );
 
-        $store_id = $category->getStoreId();
-        $routeParams['id']  = $category->getId();
-        $routeParams['s']   = $category->getUrlKey();
-        $routeParams['_store'] = $store_id;
-        $url = Mage::getUrl($routePath, $routeParams);
-        $urls[] = $url;
+                // collect all rewrites
+        $coreUrlRewrites = $this->_getCategoryCoreUrlRewrites($category);
 
-        // Collect all rewrites
-        $rewrites = Mage::getModel('core/url_rewrite')->getCollection();
-        $rewrites->getSelect()->where("id_path = 'category/{$category->getId()}'");
-        foreach($rewrites as $r) {
-            unset($routeParams);
-            $routePath = '';
-            $routeParams['_direct'] = $r->getRequestPath();
-            $routeParams['_store'] = $r->getStoreId();
-            $routeParams['_nosid'] = True;
-            $url = Mage::getUrl($routePath, $routeParams);
-            $urls[] = $url;
-            $routeParams['_direct'] = $r->getTargetPath();
-            $routeParams['_store'] = $r->getStoreId();
-            $routeParams['_nosid'] = True;
-            $url = Mage::getUrl($routePath, $routeParams);
-            if (!in_array($url, $urls)) {
-                $urls[] = $url;
-            }
+        /** @var Magneto_Varnish_Helper_Data $helper */
+        $helper                 = Mage::helper('varnish');
+        $enterpriseUrlRewrites  = array();
+        $enterpriseUrlRedirects = array();
+        if ($helper->isModuleEnabled('Enterprise_Catalog')) {
+            $enterpriseUrlRewrites  = $this->_getCategoryEnterpriseUrlRewrites($category);
+            $enterpriseUrlRedirects = $this->_getCategoryEnterpriseUrlRedirects($category);
+        }
+
+        $rewrites = array_merge($coreUrlRewrites, $enterpriseUrlRewrites, $enterpriseUrlRedirects);
+        foreach ($rewrites as $r) {
+            $urls[] = Mage::getUrl('',
+                array(
+                    '_direct' => $r['request_path'],
+                    '_store'  => $r['store_id'] ? : $this->_defaultStoreId
+                )
+            );
+            $urls[] = Mage::getUrl('',
+                array(
+                    '_direct' => $r['target_path'],
+                    '_store'  => $r['store_id'] ? : $this->_defaultStoreId
+                )
+            );
         }
 
         return $urls;
@@ -221,9 +257,9 @@ class Magneto_Varnish_Model_Observer {
 
     /**
      * Returns all urls related to this cms page
-	 *
-	 * @param string $cmsPageId
-	 * @return array
+     *
+     * @param string $cmsPageId
+     * @return array
      */
     protected function _getUrlsForCmsPage($cmsPageId)
     {
@@ -235,5 +271,185 @@ class Magneto_Varnish_Model_Observer {
 
         return $urls;
     }
-}
 
+    /**
+     * Workaround for bug in magento ee 1.13
+     *
+     * @link https://github.com/tim-bezhashvyly/Sandfox_SitemapFix/wiki
+     * @param array $row
+     * @return array
+     */
+    protected function _fixRequestPathSuffix(array $row)
+    {
+        if (isset($row['store_id']) && isset($row['request_path'])) {
+            $storeId = $row['store_id'] ? : $this->_defaultStoreId;
+            $suffix  = Mage::getStoreConfig(Mage_Catalog_Helper_Product::XML_PATH_PRODUCT_URL_SUFFIX, $storeId);
+
+            if ($suffix && substr($row['request_path'], -mb_strlen($suffix)) != $suffix) {
+                $row['request_path'] .= '.' . ltrim($suffix, '.');
+            }
+        }
+
+        return $row;
+    }
+
+    /**
+     * Get product url rewrites from core_url_rewrite table
+     *
+     * @param Mage_Catalog_Model_Product $product
+     * @return array
+     */
+    protected function _getProductCoreUrlRewrites(Mage_Catalog_Model_Product $product)
+    {
+        $select = $this->_connection->select()
+            ->from($this->_resource->getTableName('core/url_rewrite'))
+            ->where('product_id = ?', $product->getId());
+
+        $rewrites = array();
+        foreach ($this->_connection->fetchAll($select) as $row) {
+            $rewrites[] = $row;
+        }
+
+        return $rewrites;
+    }
+
+    /**
+     * Get url redirects from enterprise_url_rewrite_redirect table
+     *
+     * @param Mage_Catalog_Model_Product $product
+     * @return array
+     */
+    protected function _getProductEnterpriseUrlRedirects(Mage_Catalog_Model_Product $product)
+    {
+        $select = $this->_connection->select()
+            ->from(array('e' => $this->_resource->getTableName('enterprise_urlrewrite/redirect')),
+                array('request_path' => 'identifier', 'target_path', 'store_id')
+            )
+            ->where('e.product_id = ?', $product->getId());
+
+        $redirects = array();
+        foreach ($this->_connection->fetchAll($select) as $row) {
+            $redirects[] = $row;
+        }
+
+        return $redirects;
+    }
+
+    /**
+     * Get product url rewrites from enterprise_url_rewrite table
+     *
+     * @param Mage_Catalog_Model_Product $product
+     * @return array
+     */
+    protected function _getProductEnterpriseUrlRewrites(Mage_Catalog_Model_Product $product)
+    {
+        $requestPath = $this->_connection->getIfNullSql('url_rewrite.request_path', 'default_ur.request_path');
+        $targetPath  = $this->_connection->getIfNullSql('url_rewrite.target_path', 'default_ur.target_path');
+
+        $select = $this->_connection->select()
+            ->from(array('e' => $this->_resource->getTableName('catalog/product')),
+                array('product_id' => 'entity_id')
+            )
+            ->where('e.entity_id = ?', $product->getId())
+            ->joinLeft(array('url_rewrite_product' => $this->_resource->getTableName('enterprise_catalog/product')),
+                'url_rewrite_product.product_id = e.entity_id',
+                array(''))
+            ->joinLeft(array('url_rewrite' => $this->_resource->getTableName('enterprise_urlrewrite/url_rewrite')),
+                'url_rewrite_product.url_rewrite_id = url_rewrite.url_rewrite_id AND url_rewrite.is_system = 1',
+                array(''))
+            ->joinLeft(array('default_urp' => $this->_resource->getTableName('enterprise_catalog/product')),
+                'default_urp.product_id = e.entity_id AND default_urp.store_id = 0',
+                array(''))
+            ->joinLeft(array('default_ur' => $this->_resource->getTableName('enterprise_urlrewrite/url_rewrite')),
+                'default_ur.url_rewrite_id = default_urp.url_rewrite_id',
+                array('request_path' => $requestPath, 'target_path' => $targetPath, 'store_id')
+            );
+
+        $rewrites = array();
+        foreach ($this->_connection->fetchAll($select) as $row) {
+            $rewrites[] = $this->_fixRequestPathSuffix($row);
+        }
+
+        return $rewrites;
+    }
+
+    /**
+     * Get product category url rewrites from core_url_rewrite table
+     *
+     * @param Mage_Catalog_Model_Category $category
+     * @return array
+     */
+    protected function _getCategoryCoreUrlRewrites(Mage_Catalog_Model_Category $category)
+    {
+        $select = $this->_connection->select()
+            ->from($this->_resource->getTableName('core/url_rewrite'))
+            ->where('category_id = ?', $category->getId());
+
+        $rewrites = array();
+        foreach ($this->_connection->fetchAll($select) as $row) {
+            $rewrites[] = $row;
+        }
+
+        return $rewrites;
+    }
+
+    /**
+     * Get category url redirects from enterprise_url_rewrite_redirect table
+     *
+     * @param Mage_Catalog_Model_Category $category
+     * @return array
+     */
+    protected function _getCategoryEnterpriseUrlRedirects(Mage_Catalog_Model_Category $category)
+    {
+        $select = $this->_connection->select()
+            ->from(array('e' => $this->_resource->getTableName('enterprise_urlrewrite/redirect')),
+                array('request_path' => 'identifier', 'target_path', 'store_id')
+            )
+            ->where('e.category_id = ?', $category->getId());
+
+        $redirects = array();
+        foreach ($this->_connection->fetchAll($select) as $row) {
+            $redirects[] = $row;
+        }
+
+        return $redirects;
+    }
+
+    /**
+     * Get category url rewrites from enterprise_url_rewrite table
+     *
+     * @param Mage_Catalog_Model_Category $category
+     * @return array
+     */
+    protected function _getCategoryEnterpriseUrlRewrites(Mage_Catalog_Model_Category $category)
+    {
+        $requestPath = $this->_connection->getIfNullSql('url_rewrite.request_path', 'default_ur.request_path');
+        $targetPath  = $this->_connection->getIfNullSql('url_rewrite.target_path', 'default_ur.target_path');
+
+        $select = $this->_connection->select()
+            ->from(array('e' => $this->_resource->getTableName('catalog/category')),
+                array('category_id' => 'entity_id')
+            )
+            ->where('e.entity_id = ?', $category->getId())
+            ->joinLeft(array('url_rewrite_category' => $this->_resource->getTableName('enterprise_catalog/category')),
+                'url_rewrite_category.category_id = e.entity_id',
+                array(''))
+            ->joinLeft(array('url_rewrite' => $this->_resource->getTableName('enterprise_urlrewrite/url_rewrite')),
+                'url_rewrite_category.url_rewrite_id = url_rewrite.url_rewrite_id AND url_rewrite.is_system = 1',
+                array(''))
+            ->joinLeft(array('default_urp' => $this->_resource->getTableName('enterprise_catalog/category')),
+                'default_urp.category_id = e.entity_id AND default_urp.store_id = 0',
+                array(''))
+            ->joinLeft(array('default_ur' => $this->_resource->getTableName('enterprise_urlrewrite/url_rewrite')),
+                'default_ur.url_rewrite_id = default_urp.url_rewrite_id',
+                array('request_path' => $requestPath, 'target_path' => $targetPath, 'store_id')
+            );
+
+        $rewrites = array();
+        foreach ($this->_connection->fetchAll($select) as $row) {
+            $rewrites[] = $this->_fixRequestPathSuffix($row);
+        }
+
+        return $rewrites;
+    }
+}
