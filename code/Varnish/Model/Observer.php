@@ -27,7 +27,14 @@ class Magneto_Varnish_Model_Observer
     {
         $this->_resource       = Mage::getSingleton('core/resource');
         $this->_connection     = $this->_resource->getConnection(Mage_Core_Model_Resource::DEFAULT_READ_RESOURCE);
-        $this->_defaultStoreId = Mage::app()->getDefaultStoreView()->getId();
+        $defaultStoreView      = Mage::app()->getDefaultStoreView();
+
+
+        if (!$defaultStoreView) {
+            Mage::app()->reinitStores();
+            $defaultStoreView = Mage::app()->getDefaultStoreView();
+        }
+        $this->_defaultStoreId = $defaultStoreView->getId();
     }
 
     /**
